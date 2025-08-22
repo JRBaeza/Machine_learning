@@ -12,11 +12,12 @@ En el presente trabajo he aplicado diversas técnicas de aprendizaje automático
 
 EN:
 In this work, I have applied various machine learning techniques. I will be working with a synthetic dataset that reflects the lifestyle of young people and adults. The dataset includes both numerical and categorical variables, representing aspects such as social media usage, exercise habits, monthly expenses, income, among others. The techniques we will use are:
-Principal Component Analysis (PCA)
-Genetic algorithms for variable selection
-Regression methods
-Support Vector Machines (SVM)
-Classification and regression trees
-Random Forests
-Multilayer perceptrons
-Handling imbalanced data in classification problems
+
+- Principal Component Analysis (PCA)
+- Genetic algorithms for variable selection
+- Regression methods
+- Support Vector Machines (SVM)
+- Classification and regression trees
+- Random Forests
+- Multilayer perceptrons
+- Handling imbalanced data in classification problems
