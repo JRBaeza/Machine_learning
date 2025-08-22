@@ -1,0 +1,538 @@
+---
+title: "El hábito de los jovenes bajo el Machine Learning"
+author: "Juan Ramón Baeza Borrego"
+date: "2025-07-18"
+output:
+  pdf_document:
+    toc: true
+    latex_engine: xelatex
+    number_sections: false
+    keep_tex: true
+  html_document:
+    toc: false
+    df_print: paged
+lang: es
+header-includes:
+- \usepackage{fvextra}
+- \DefineVerbatimEnvironment{Highlighting}{Verbatim}{breaklines,commandchars=\\\{\}}
+- \RecustomVerbatimEnvironment{verbatim}{Verbatim}{ showspaces = false, showtabs =
+  false, breaksymbolleft={}, breaklines }
+editor: source
+execute:
+  error: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(warn = -1)   
+```
+\newpage
+## Generación de datos
+```{r}
+data <- source("Generación Dataset.R")
+```
+Como pobemos observar, tenemos 200 observaciones y 11 variables principales. Quedando el siguiente principio del dataset.
+```{r}
+head(student_data)
+```
+
+
+\newpage
+## 1. Análisis de Componentes Principales (PCA) 
+Realizaremos un PCA sobre las variables numéricas del conjunto de datos (por ejemplo, horas de uso de redes sociales, horas de ejercicio, niveles de estrés, gastos mensuales, ingresos, etc.).
+
+```{r}
+library(factoextra)
+data_numericos <- student_data[, sapply(student_data, is.numeric)]
+```
+Las variables númericas por ende son:
+```{r}
+head(data_numericos)
+```
+A continuación vamos a estandarizar los datos como requisito para hacer nuestro PCA.
+```{r}
+datos_esc <- scale(data_numericos)
+PCA <- prcomp(datos_esc, center = TRUE, scale. = TRUE)
+summary(PCA)
+```
+Basandonos en estos datos en el criterio de la varianza acumulada, nos quedaríamos con los 6 primeros componentes puesto que ya explican un porcentaje alto de varianza con el menor número posible de variables. Sin embargo, haremos uso del **gráfico de scree plot** para hallar algún "codo".
+```{r}
+fviz_eig(PCA, addlabels = TRUE, ylim = c(0, 50), main = "Gráfico de sedimentación - PCA")
+```
+De esta forma observamos que hay dos pequeños "codos" sin ser un cambio muy brusco: tras el componente 4 y tras el componente 6.
+
+Otro método es mediante **eigenvalues** donde nos dirá la importancia de cada componente. Es decir, cuanta varianza de los datos totales se explica con estos componentes.
+```{r}
+eigenvalores <- get_eigenvalue(PCA)
+eigenvalores
+```
+Partido de los resultados obtenidos, ¿cuántos componentes principales deberiamos retener basándonos en el gráfico de sedimentación (scree plot) o los valores propios (eigenvalues)? Bajo mi punto de vista, optaría por los primeros cuatro componentes, puesto que podemos proceser a un analisis con buena cobertura y eigenvalues > 1,58% de varianza explicada.
+
+A continuación, realizaremos una interpretación de los dos primeros componentes principales. Para ello observaremos las cargas de dichas componentes.
+```{r}
+round(PCA$rotation[, 1:2], 3) 
+```
+En el primer componente vemos una alta carga en: *Physical_Exercise_Hours* (0.383), *Stress_Level* (0.564) y *Income_Level (0.413)*, siendo opuesto a *Age* (-0.417), *Daily_Study_Hours* (-0.035) y *Monthly_Expenses (-0.343)*. Esto puede hacernos pensar en una correlación de la actividad personal del individuo
+
+En el segudo componente, observamos una alta carga en: *Monthly_Expenses* (0.581), *Social_Media_Hours (0.563)*, *Num_Online_Courses_Taken* (0.421). Por lo que podriamos pensar en cierta correlación a nivel de consumo online.
+
+\newpage
+## 2. Análisis de Correspondencias (CA) 
+
+Para dicha tarea nos valdremos de las variables categóricas del conjunto de datos (género favorito, área de estudios y realizaremos un análisis de correspondencias. Esta es una técnica estadística multivariante. Su análogo es la técnica vista anterior, el PCA, con diferencia que el anterior, como hemos trabajado, utiliza datos numericos continuos y este categóricos. Además, los datos de entrada del PCA es una matriz de datos, mientra que en el CA es una tabla de contigencia donde se recopilan las frecuencias cruzadas entre distintas variables. 
+
+En este caso estudiaremos para las categorías género favorito, *Favorite_Genre*, y área de estudios,*Career_Track*, quedando nuestra tabla de contigencia tal que así.
+```{r}
+#install.packages("FactoMineR")
+#install.packages("factoextra")
+
+library(FactoMineR)
+library(factoextra)
+
+tabla_contigencia <- table(student_data$Career_Track, student_data$Favorite_Genre)
+tabla_contigencia
+```
+
+La distribución porcentual por filas quedaría:
+```{r}
+prop.table(tabla_contigencia, 1)
+```
+Mientras que por columnas:
+```{r}
+prop.table(tabla_contigencia, 2)
+```
+
+A continuación realizaremos el CA a dicha tabla.
+```{r}
+#install.packages("ca")
+
+library(ca)
+anacor <- ca(tabla_contigencia)
+summary(anacor)
+```
+
+Ahora, visualizaremos las categorías de filas y columnas en 2D.
+```{r}
+plot(anacor, main = "Mapa de correspondencia: Género favorito vs Área de estudios")
+```
+
+Como cierrre de este apartado haremos una interpretación de las categorías. Aunque con la tabla de contigencia se podría vaticinar, del siguiente gráfico sacamos las siguientes conclusiones. Por un lado debemos declarar que con la dim1, con el 98.2% de la variabilidad, por lo que las asociaciones se interpretan principalmente en el eje horizontal. Partiendo de esta base, observamos que las preferencias entre *Manager* y *Freelancer* son opuestas debido a su separación. De hecho en la correlación k=1 son los que más apartan a las dim1. Por el contrario *DataScientist* y *WebDev* son los más cercanos tanto al centro como entre ellos, por lo que su preferencia es más cercana. 
+
+De la misma forma analizando los generos, vemos que los perfiles que elegien tanto *Action* como *Drama* son completamente distitno debido a su distancia, en -123 el priemro y 122 el segundo, completamente opuesto. En cambio, *Comedy* se presenta como un género más bien transversal al situarse en el centro.
+
+\newpage
+## 3. Algoritmos Genéticos para la selección de variables 
+Nuestro objetivo será predecir el *Nivel_de_Estrés* de un individuo utilizando las demás variables del conjunto de datos.
+Comenzaremos cargando nuestra libreria *GA* y seleccionando las variables predictoras.
+```{r}
+#install.packages("GA")
+library(GA)
+
+vars <- names(student_data)
+pred_vars <- vars[vars != "Stress_Level"]
+
+X <- student_data[, vars]
+y <- student_data$Stress_Level
+```
+A continuación, generaremos una función basada en en el **Criterio de Información de Akaike**, de esta forma, penalizan los modelos más complejos. Esto se basa en:
+$$
+\text{AIC} = -2 \cdot \log(\text{verosimilitud}) + 2 \cdot \text{npar}
+$$
+```{r}
+fitness_AIC <- function(bitstring) {
+  if (sum(bitstring) == 0) return(Inf)        
+  sel <- pred_vars[as.logical(bitstring)]
+  modelo <- lm(Stress_Level ~ ., data = student_data[, sel, drop = FALSE])
+  AIC(modelo) 
+}
+```
+Una vez generada, ya podemos generar nuestro algoritmo genético.
+```{r}
+GA_model <- ga(
+  type = "binary",
+  fitness = function(bits) -fitness_AIC(bits),
+  nBits = length(pred_vars),
+  popSize = 50,
+  maxiter = 50,
+  run = 50,
+  seed = 123,
+  monitor = TRUE
+)
+
+best_bits  <- GA_model@solution[1, ]
+seleccion  <- pred_vars[as.logical(best_bits)]
+seleccion
+```
+Finalmente, construimos el modelo con las variables seleccionadas.
+```{r}
+modelo_final <- lm(Stress_Level ~ .,data = student_data[, seleccion, drop = FALSE])
+```
+Recapitulando lo realizando anteriomente, hemos comenzando haciendo una selección de variables, obviando la variable que queremos predecir, con el fin de buscar dicho subconjunto óptimo. Seguidamente, hemos generado una función *fitness_AIC* la cual evalua que tan bueno es un oconjunto de variables. Como criterio podriamos haber optado por $R^2$, sin embargo, pretendemos que se penalice el modelo con muchas variables, optando por el AIC. Dicha función la evaluamos dentro del algoritmo genético el cual busca el mejor AIC, en este caso en 50 iteracciones. Finalmente, nos arroja que el mejor subconjunto óptimo de variables para predecir *Stress_Level*, es: *Social_Media_Hours*, *Physical_Exercise_Hours*, *Favorite_Genre* y *Binary_Status*.
+
+Para comparar modelos, propondremos uno que partad el subconjunto final de variables seleccionado y la precisión del modelo (u otra métrica relevante). Utilizaremos un tamaño de población igual a 30, Un número máximo de interacciones igual a 20, y run = 10, seed = 123. 
+
+Comenzaremos generando la función **Fitness** y el algoritmo genético con las condiciones dadas.
+```{r}
+fitness <- function(string) {
+  selected_vars <- pred_vars[as.logical(string)]
+  if (length(selected_vars) == 0) return(Inf)
+  
+  formula <- as.formula(paste("Stress_Level ~", paste(selected_vars, collapse = " + ")))
+  modelo <- lm(formula, data = student_data)
+  
+  return(AIC(modelo))
+}
+
+GA_model <- ga(
+  type = "binary",
+  fitness = function(string) -fitness(string),
+  nBits = length(pred_vars),
+  popSize = 30,
+  maxiter = 20,
+  run = 10,
+  seed = 123,
+  monitor = TRUE
+)
+```
+Una vez generados, veremos cual es el subconjunto de variables;
+```{r}
+best_solution <- GA_model@solution[1, ]
+selected_vars <- vars[as.logical(best_solution)]
+selected_vars
+
+final_formula <- as.formula(paste("Stress_Level ~", paste(selected_vars, collapse = " + ")))
+model_DATOS <- lm(final_formula, data = student_data)
+```
+En este caso, observamos como nos propone 5 varibales predictoras, a diferencia del otro que simplemente nos propone 4. A continuación analizaremos las métricas de ambos modelos.
+```{r}
+comparacion_modelos <- data.frame(
+  Modelo = c("Modelo 1", "Modelo Condiciones b"),
+  AIC = c(AIC(modelo_final), AIC(model_DATOS)),
+  R_squared = c(summary(modelo_final)$r.squared, summary(model_DATOS)$r.squared)
+)
+print(comparacion_modelos)
+```
+Como resultado obtenemos que que el Modelo 1, que es el anteriormente generado tiene un mejor AIC, al ser menos complejo, pero por contra tiene un peor $R^2$, mientras que en Modelo Condiciones b pasa justamente lo contrario.
+
+\newpage
+## 4. Métodos de Regresión
+Para esta técnica utilizaremos el *Nivel_de_Estrés* como respuesta, construyendo modelos de regresión utilizando el resto de variables con los métodos *Stepwise*. Además, compararemos su desempeñoo en un conjunto de prueba y discuteremos las diferencias en la selección de variables que ha originado cada método.
+
+En el Análisis de Componentes Principales solo se utiliza las variables predictoras, por lo que la variable respuesta no interviene. Con la Regresión PLS el objetivo es encontrar aquella dimensión que explique ambas variables. Comenzaremos haciendo la división del conjunto de datos.
+```{r}
+set.seed(123)
+n <- nrow(student_data)
+train_index <- sample(1:n, size = floor(0.75 * n))
+train_data <- student_data[train_index, ]
+test_data  <- student_data[-train_index, ]
+```
+A continuación generamos los límites de búsqueda de nuestro algoritmo. Estos serán:
+
+- *Modelo nulo*: donde no usa ninguna variable predictora, solamente *Nivel_de_Estrés*.
+- *Modelo completo*: usa todas las variables disponibles.
+```{r}
+modelo_nulo <- lm(Stress_Level ~ 1, data = train_data)
+modelo_full <- lm(Stress_Level ~ ., data = train_data)
+```
+Una vez definidos los límites, comenzaremos desde el *modelo_nulo* y se irán incluyendo variables confome si mejora el modelo según AIC. Para ello declararemos *modelo_forward* y *modelo_backward* y observaremos sus predicciones vs los valores reales.
+```{r}
+modelo_forward <- step(modelo_nulo, scope = formula(modelo_full), direction = "forward", trace = FALSE)
+modelo_backward <- step(modelo_full, direction = "backward", trace = FALSE)
+
+pred_forward <- predict(modelo_forward, newdata = test_data)
+pred_backward <- predict(modelo_backward, newdata = test_data)
+
+plot(test_data$Stress_Level, pred_forward, main = "Predicciones FORWARD", xlab = "Valor real", ylab = "Predicción", col = "blue", pch = 16)
+abline(a = 0, b = 1, col = "red", lty = 2)
+grid()
+```
+Por último, observaremos y compararemos las métricas.
+```{r}
+RMSE <- function(y_true, y_pred) sqrt(mean((y_true - y_pred)^2))
+R2 <- function(y_true, y_pred) cor(y_true, y_pred)^2
+
+rmse_forward <- RMSE(test_data$Stress_Level, pred_forward)
+r2_forward   <- R2(test_data$Stress_Level, pred_forward)
+
+rmse_backward <- RMSE(test_data$Stress_Level, pred_backward)
+r2_backward   <- R2(test_data$Stress_Level, pred_backward)
+
+Comparacion_pls <- data.frame(
+  Método = c("Forward", "Backward"),
+  RMSE = c(rmse_forward, rmse_backward),
+  R2   = c(r2_forward, r2_backward)
+)
+
+print(Comparacion_pls)
+```
+Podemos observar que ambos modelos nos arrojan los mismos valores, en este sentido nos deberiamos preguntar si son identicos. Para ello lo verificaremos de la siguiente forma.
+```{r}
+formula(modelo_forward)
+formula(modelo_backward)
+```
+Como podemos observar son las mismas variables, aunque en distinto orden cuestión que no afecta en absoluto. Las variables que han seleccionado cada modelo son: *Age*,*Social_Media_Hours*,*Physical_Exercise_Hours*,*Daily_Study_Hours* y *Favorite_Genre*. Es por ello que obtenemos unas mismas métricas: $R^2 \approx 0.0009$ y $\text{RMSE} \approx 2.06$, y aunque las variables óptimas esten claras, esto nos arroja que la variable *Stress_Level* no se explica bien mediante regresión lineal con las variables presentes.
+
+\newpage
+## 5. Máquinas de Vectores de Soporte (SVM)
+Construiremos un modelo de regresión SVM para predecir *Nivel_de_Estrés*s de un individuo. Para ello, eligeremos la función kernel que mejor se ajusta al problema con el resto de parámetros por defecto. Por otro lado, compararemos el desempeñoo del SVM con los métodos de regresión del apartado anterior.
+
+Los kernels son funciones matematicas que nos permiten actuar en modelos no lineales, es por ello que debemos realizar una inmersión de las instancias del conjunto de aprendizaje en un espacio de dimensión superior, para así poder modelarlo de manera lineal. A continuación generaremos los distintos modelos con distintas kernel.
+```{r}
+library(caret)
+library(e1071)
+
+svm_linear <- svm(Stress_Level ~ ., data = train_data, kernel = "linear")
+svm_radial <- svm(Stress_Level ~ ., data = train_data, kernel = "radial")
+svm_poly <- svm(Stress_Level ~ ., data = train_data, kernel = "polynomial")
+svm_sigmoid <- svm(Stress_Level ~ ., data = train_data, kernel = "sigmoid")
+```
+Una vez determinados dichos modelos con las distintitas kernels, los compararemos entre sí, en función a las métricas de su predicción.
+```{r}
+eval_model <- function(model, test_data) {
+  pred <- predict(model, newdata = test_data)
+  rmse <- sqrt(mean((test_data$Stress_Level - pred)^2))
+  r2 <- cor(test_data$Stress_Level, pred)^2
+  return(c(RMSE = rmse, R2 = r2))
+}
+
+res_linear <- eval_model(svm_linear, test_data)
+res_radial <- eval_model(svm_radial, test_data)
+res_poly   <- eval_model(svm_poly, test_data)
+res_sigmod <- eval_model(svm_sigmoid, test_data)
+
+Resultados_SVM <- rbind(
+  Linear = res_linear,
+  Radial = res_radial,
+  Polynomial = res_poly,
+  Sigmoid = res_sigmod
+)
+
+Resultados_SVM
+```
+De los cuatro modelos SVM entrenados con diferentes kernels (lineal, polinomial, radial y sigmoidal), el kernel polinomial obtuvo el menor RMSE, mientras que el sigmoidal alcanzó el $R^2$ más alto. No obstante, todos los valores de $R^2$ son cercanos a cero, lo que indica una capacidad predictiva muy limitada. Esto sugiere que las variables actuales apenas explican la variabilidad en el Nivel_de_Estrés. A pesar de aplicar modelos no lineales, el desempeño sigue siendo bajo. Aún así, el "mejor" modelo sería el polinomial, puesto que obtuvo el menor error de predicción (RMSE = 1.969), aunque la capacidad explicativa global sigue siendo limitada en todos los casos. A partir de este determinaremos el número de vectores soportes utilizados.
+```{r}
+svm_poly$tot.nSV
+```
+Estos vectores son el conjunto de observaciones que utiliza el modelo del conjunto de entrenamiento, en este caso son 133. Estos son los puntos más cercanos al margen de decisión, por lo que son fundamentales para determinar la función de predicción. Como conclusión de este dato, debemos destacar que sea un número alto ya que necesita de muchos vectores para determinar dicha fontera de predicción. Esto casa con lo anteriomente explicado, y es que esta clasificación lineal es compleja para este conjunto de datos, ya que no es linealmente separable.
+
+\newpage
+## 6. Árboles de Clasificación y Regresión
+Son modelos de predictivos que dividen los datos en ramas según sus condiciones. Estudiaremos dos tipos de arboles:
+
+- Árboles de clasificación: tiene por objetivo predecir una categoría por lo que al final de la rama habrá una oja con una categoría. Dicha rama estará determinada por un punto de corte que separa las categorías. Un ejemplo sería basandonos en la variable *Binary_Status*.
+```{r}
+library(rpart)
+
+arbol_clas <- rpart(Binary_Status ~ ., data = train_data, method = "class")
+```
+
+- Árboles de regresión: pretende predecir un valor numérico. En este caso, cada nodo el arbol divide los datos con el fin de minimizar la varianza. La predección por ende es el promedio de los valores de la variable respuesta. Un ejemplo sería basandonos en la variable *Gastos Mensuales*.
+```{r}
+arbol_reg <- rpart(Monthly_Expenses ~ ., data = train_data, method = "anova")
+```
+
+Una vez generados ambos tipos de árboles los visualizaremos e identifica las divisiones más importantes.
+```{r}
+#3install.packages("rpart.plot")
+library(rpart.plot)
+
+rpart.plot(arbol_reg, type = 2, extra = 101, fallen.leaves = TRUE)
+```
+El criterio que se sigue en el primer nodo es *Income_level*, este se subdivide en dos: *Carrer_Track* que justifica en el segundo criterio, y en el caso de que no sea *WebDev* genera otro criterio que es el numero de horas en redes sociales,*Social_Media_Hours*,, siendo este el tercer criterio.
+En la otra rama depende del número de cursos,*Num_online_courses_taken*. Seguidamente vuelve a salir el mismo critrio de *Social_Media_Hours* aunque con distinto nivel. Este se subidive en *Physical_Exercise_Hours*. Aqui se vuelve a repetir en el esquema pq por un lado tenemos *Income_level*, mientras que del otro *Carrer_Track*.
+A continuación, veremos que variables resalta R.
+```{r}
+arbol_reg$variable.importance
+```
+Por último veremos el árbol de clasificación.
+```{r}
+rpart.plot(arbol_clas, type = 2, extra = 104, fallen.leaves = TRUE)
+```
+En este caso, nuestro árbol comienza por el criterio *Num_Online_Courses_Taken*. El segundo criterio que sigue es el de *Income_level*. Seguidamente se basa en *Physical_Exercise_Hours*, para seguir con *Social_Media_Hours*, a continuación *Age*. El siguiente criterio vuelve a ser *Physical_Exercise_Hours*, para continuar *Income_Level* y *Monthly_Expenses*. Por último, el criterio es el de *Career_Track*.
+Por último veremos que variables resalta R.
+```{r}
+arbol_clas$variable.importance
+```
+\newpage
+## 7. Bosques Aleatorios
+Contruiremos un bosque aleatorio desde la variable *Binary Status*. A partir de ahí evaluaremos las métricas de desempeño y discute la importancia de las variables involucradas teniendo presente la siguiente pregunta: ¿cuántas variables explicativas se consideran en cada corte?
+
+A continuación vamos a construir un modelo de clasificación, puesto que la variable a estudiar,*Binary_Status*, es categórica.
+```{r}
+#install.packages("randomForest")
+library(randomForest)
+
+rf_model <- randomForest(Binary_Status ~ ., data = train_data, importance = TRUE)
+```
+Una vez generado el modelo veremos las métricas.
+```{r}
+rf_pred <- predict(rf_model, newdata = test_data)
+conf_mat <- confusionMatrix(rf_pred, test_data$Binary_Status)
+
+conf_mat
+```
+Evaluaremos este modelo con los resultados obtenidos de la Matriz de Confunsión. Nos ofrece un 78% de accuracy que a priori sería un buen dato, sin embargo, observamos que casi siempre clasifica como **No**, de hecho si nos fijamos en el No Information Rate este tiene valores de 0.8. De aquí podemos deducir que no es que el modelo tenga una buena forma de entrenamiento sino que se aprovecha del desbalance de los datos para clasificar. Esto coincide con que tengamos un Kappa con valor -0.03 y es que su valor negativo nos viene a decir que categoriza peor que el azar. Finalmente, como conclusión, podemos decir que está altamente sesgado hacia el **No**. Representaremos la matriz de confusión para que nos hagamos una idea más visual de como predice.
+```{r}
+cm_df <- as.data.frame(conf_mat$table)
+
+ggplot(cm_df, aes(x = Reference, y = Prediction, fill = Freq)) +
+  geom_tile(color = "black") +
+  geom_text(aes(label = Freq), size = 6) +
+  scale_fill_gradient(low = "white", high = "steelblue") +
+  theme_minimal() +
+  labs(title = "Matriz de confusión", x = "Verdadero", y = "Predicho")
+```
+Respecto a las variables explicativas.
+```{r}
+varImpPlot(rf_model)
+```
+Las variables que más aporta a la hora predecir en este modelo son: *Physical_ExerciseHours*,*Age* y *Num_Online_Courses_Taken*, mientras que las que menos importan son: *Carrer_Track*, *Daily_Study_Hours* y *Social_Media_Hours*. Por el otro lado, aquellas variables que más han aparecido a la hora de definir los nodos son: *Income_Level*, *Physical_Exercise_Hours* y *Daily_Study_Hours*. Por otro lado las que menos son: *Stress_Level*,*Career_Track* y *Favorite_Genre*.
+En cuanta a la pregunta de cuántas variables predictoras se tienen en cuenta en cada nodo lo veremos con la siguiente función. Es decir, en cada división de cada árbol dentro del bosque, solo se consideran 3 variables aleatorias de todas las disponibles. El algoritmo escoge la que mejor separa los datos. Esto introduce variabilidad entre los árboles y ayuda a que el bosque sea menos propenso al overfitting.
+```{r}
+rf_model$mtry
+```
+Como observamos nos arroja el valor 3, es decir, en cada división de cada árbol dentro del bosque, solo se consideran 3 variables aleatorias de todas las disponibles. El algoritmo escoge la que mejor separa los datos. Esto introduce variabilidad entre los árboles y ayuda a que el bosque sea menos propenso al overfitting.
+
+\newpage
+## 8. Perceptrones Multicapa / Deep Learning con *h2o*
+Comenzaremos cargando el paquete *h2o*, que es una plataforma de código abierto donde se nos permite entrenar modelos predictivos.
+```{r}
+#install.packages("h2o", repos = "https://cloud.r-project.org")
+
+library(h2o)
+h2o.init()
+```
+Una vez activado y puesto en funcionamiento el paquete *h2o*, entrena un modelo MLP para predecir *Nivel_de_Estrés* (regresión). Es por ello que definiremos las variables y los conjutno de entrenamiento y test. Previamente, convertiremos los datos a formato *h2o*.
+```{r}
+student_h2o <- as.h2o(student_data)
+
+y <- "Stress_Level"
+x <- setdiff(names(student_data), y)
+
+
+splits <- h2o.splitFrame(student_h2o, ratios = 0.8, seed = 123)
+train <- splits[[1]]
+test <- splits[[2]]
+```
+Los hiperparametros seleccionacionados serán:
+
+- Función de activación de tipo Relu (activation = "Rectifier").
+- El número de capas oculatas, 2 con 10 neuronas en ese caso, (hidden = c(10, 10)).
+- Número de pasadas de los datos (epochs = 100).
+
+Quedandonos nuestra siguiente modelo MLP.
+```{r}
+modelo_nn <- h2o.deeplearning(
+  x = x,
+  y = y,
+  training_frame = train,
+  validation_frame = test,
+  activation = "Rectifier",       
+  hidden = c(10, 10),             
+  epochs = 100,                    
+  stopping_rounds = 5,
+  stopping_metric = "RMSE",        
+  seed = 123
+)
+```
+A continuación, observaremos las métricas como resultado de dicho modelo. Haremos uso de la matriz de confusión.
+```{r}
+perf <- h2o.performance(modelo_nn, newdata = test)
+cat("El RSME de este modelo es:", h2o.rmse(perf), "\n")
+cat("El coeficiente de determinación del modelo es: ", h2o.r2(perf))
+```
+A la vista de los resultados, podemos decir que este primer modelo generado no captura bien los modelos, es por ello que pasaremos a hacer un ajuste de hiperparametros que se ajusten mejor.
+
+Respecto al ajuste de hiperparametrnos nos basaremos anteriores:
+
+- Función de activación que ahora la probaremos añadiremos tangente hiperbólica y Maxout.
+- El número de capas oculatas, igulamente serian con 2 capas pero con 10, 20 y 50 neuronas cada una.
+- Número de pasadas de los datos.
+
+Para ello utilizaremos la función Grid Search de *h2o* que encontrará los mejores hiperparametros.
+```{r}
+hyper_params <- list(
+  activation = c("Rectifier", "Tanh", "Maxout"),
+  hidden = list(c(10,10), c(20,20), c(50,50)),
+  epochs = c(50, 100, 200)
+)
+
+grids <- h2o.ls()
+if ("nn_grid" %in% grids$key) {
+  h2o.rm("nn_grid")
+}
+
+grid <- h2o.grid(
+  algorithm = "deeplearning",
+  grid_id = "nn_grid",
+  x = x,
+  y = y,
+  training_frame = train,
+  validation_frame = test,
+  hyper_params = hyper_params,
+  stopping_metric = "RMSE",
+  stopping_rounds = 5,
+  seed = 123
+)
+```
+Finalmente, observaremos cuales son las métricas de cada una de las combincaciones. 
+```{r}
+grid_perf <- h2o.getGrid(
+  grid_id = "nn_grid",
+  sort_by = "RMSE",
+  decreasing = FALSE
+)
+
+grid_perf
+```
+Una vez evaluados los modelos se han imprimido 27 modelos distintos. Sin embargo, de todos los visto y de todas las opciones planteadas, la mejor opción es aquella que combina la función de activación tangente hiperbólica, que se pasara 50 veces por los datos y que haya 2 capas ocultas de 10 nueronas cada una. Siendo este
+```{r}
+modelo_best <- h2o.deeplearning(
+  x = x,
+  y = y,
+  training_frame = train,
+  validation_frame = test,
+  activation = "Tanh",       
+  hidden = c(10, 10),             
+  epochs = 50,                    
+  stopping_rounds = 5,
+  stopping_metric = "RMSE",        
+  seed = 123
+)
+```
+A continuación, hallaremos las métricas de dicho modelo.
+```{r}
+
+metric_best_model <- h2o.performance(modelo_best, newdata = test)
+cat("El RSME del modelo co mejores hiperparametro es:", h2o.rmse(metric_best_model), "\n")
+cat("El coeficiente de determinación del modelo co mejores hiperparametro es: ", h2o.r2(metric_best_model))
+```
+Aunque estos datos mejoran lo anterior, al explicarse mejor la variabilidad de los datos y fallar menos en promedio el número de equivocaciones por unidades, sigue siendo bajo para poder llegar a hacer predicciones fiables. 
+
+
+\newpage
+## 9. Manejo de Datos Desequilibrados
+La tarea que seleccionaremso corresponde a la número 7, de random forest, la cual utlizaba la variable categórica *Binary_Status*, y se presentaba desbalanceada por la gran cantidad de "No" que exisitían en ella. Pretendemos consiguir balancear la clase minoritaria de nuestro dataset, para así evitar el sobremuestreo. A continuación crearemos ese dataset. 
+Utilizaré el paquete ROSE, debido a que el paquete SMOTE solo funciona con variables númericas y al hacer la conversión me daba diversos fallos relacionados con la función para balancear.
+```{r}
+#install.packages("ROSE")
+library(ROSE)
+
+set.seed(123)
+
+
+train_data_balanced <- ROSE(Binary_Status ~ ., data = train_data, seed = 1)$data
+
+table(train_data_balanced$Binary_Status)
+```
+Ahora ya observamos que el número de "No" y "Yes" ya están, más equiparados. Veremos a continuación si esto repercute en el modelo como esperamos.
+```{r}
+rf_model_balanced <- randomForest(Binary_Status ~ ., data = train_data_balanced, importance = TRUE)
+
+rf_pred_balanced <- predict(rf_model_balanced, newdata = test_data)
+
+conf_mat_balanced <- confusionMatrix(rf_pred_balanced, test_data$Binary_Status)
+conf_mat_balanced
+
+```
+Tras aplicar ROSE para balancear las clases, el modelo Random Forest mostró una reducción en la precisión global (de 78% a 70%), pero una mejora significativa en métricas más relevantes para un dataset desbalanceado. El Kappa pasó de -0.03 a 0.33, indicando que el modelo es útil. Balanced Accuracy mejoró de 0.48 a 0.74, reflejando un modelo mucho más equitativo en la predicción de ambas clases. Además, la Specificity mejoró de 0% a 80%, lo que evidencia que el modelo ahora también es capaz de detectar la clase minoritaria ("Yes"), lo que antes no hacía. Por ende, podemos concluir, que hemos mejorado el modelo y su capacidad de predicción.
